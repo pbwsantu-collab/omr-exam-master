@@ -1,0 +1,24 @@
+{
+  "name": "OMR Exam Master XI–XII",
+  "short_name": "OMR Master",
+  "description": "Create, print, scan and mark OMR exams offline on Android",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#1a56db",
+  "theme_color": "#1a56db",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
