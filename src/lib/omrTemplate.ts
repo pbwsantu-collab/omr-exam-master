@@ -24,8 +24,8 @@ export const TEMPLATE: OMRTemplateConfig = {
 export function getBubbleCenter(
   questionIndex: number,
   optionIndex: number,
-  totalQuestions: number,
-  optionsPerQ: number
+  _totalQuestions: number,
+  _optionsPerQ: number
 ): { x: number; y: number } {
   const col = Math.floor(questionIndex / TEMPLATE.questionsPerCol);
   const row = questionIndex % TEMPLATE.questionsPerCol;
