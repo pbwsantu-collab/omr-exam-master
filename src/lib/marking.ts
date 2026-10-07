@@ -1,4 +1,4 @@
-import type { Exam, StudentResult, AnswerState, OptionLetter, GradeRange } from '../types';
+import type { Exam, StudentResult, AnswerState, GradeRange } from '../types';
 import { DEFAULT_GRADE_RANGES } from '../types';
 
 export function calculateMarks(
@@ -21,85 +21,49 @@ export function calculateMarks(
   let wrong = 0;
   let blank = 0;
   let multiple = 0;
-  let marks = 0;
+  let negativeApplied = 0;
   const maxMarks = exam.totalQuestions * exam.marksPerQuestion;
 
   for (let i = 0; i < exam.totalQuestions; i++) {
-    const ans = finalAnswers[i] ?? 'BLANK';
-    const correctAns = key[i];
-
-    if (ans === 'BLANK' || ans === 'UNCERTAIN') {
+    const ans = finalAnswers[i];
+    const correctOpt = key[i];
+    if (ans === 'BLANK' || ans === '') {
       blank++;
     } else if (ans === 'MULTIPLE') {
       multiple++;
-    } else if (correctAns && ans === correctAns) {
+      if (exam.negativeMarking > 0) negativeApplied += exam.negativeMarking;
+    } else if (ans === correctOpt) {
       correct++;
-      marks += exam.marksPerQuestion;
     } else {
       wrong++;
-      marks -= exam.negativeMarks;
+      if (exam.negativeMarking > 0) negativeApplied += exam.negativeMarking;
     }
   }
 
-  const marksObtained = Math.round(marks * 100) / 100;
-  const percentage = maxMarks > 0 ? Math.round((marksObtained / maxMarks) * 10000) / 100 : 0;
-  const grade = getGrade(percentage, exam.gradeRanges || DEFAULT_GRADE_RANGES);
-  const result: 'PASS' | 'FAIL' = marksObtained >= exam.passingMarks ? 'PASS' : 'FAIL';
+  const marksObtained = Math.max(0, correct * exam.marksPerQuestion - negativeApplied);
+  const percentage = maxMarks > 0 ? (marksObtained / maxMarks) * 100 : 0;
+  const grade = gradeFromPercentage(percentage, exam.gradeRanges?.length ? exam.gradeRanges : DEFAULT_GRADE_RANGES);
+  const result = marksObtained >= exam.passingMarks ? 'PASS' : 'FAIL';
 
   return {
     correctCount: correct,
     wrongCount: wrong,
     blankCount: blank,
     multipleCount: multiple,
-    negativeApplied: Math.round(wrong * exam.negativeMarks * 100) / 100,
+    negativeApplied,
     marksObtained,
     maxMarks,
-    percentage,
+    percentage: Math.round(percentage * 100) / 100,
     grade,
     result,
   };
 }
 
-export function getGrade(percentage: number, ranges: GradeRange[]): string {
-  const sorted = [...ranges].sort((a, b) => b.min - a.min);
-  for (const r of sorted) {
-    if (percentage >= r.min && percentage <= r.max) return r.grade;
+function gradeFromPercentage(pct: number, ranges: GradeRange[]): string {
+  for (const r of ranges) {
+    if (pct >= r.minPercent) return r.grade;
   }
   return 'F';
-}
-
-export function buildResult(
-  exam: Exam,
-  partial: {
-    sheetId: string;
-    studentName: string;
-    rollNumber: string;
-    section?: string;
-    registrationId?: string;
-    detectedAnswers: AnswerState[];
-    confidences: number[];
-    finalAnswers: AnswerState[];
-    corrections?: Record<number, AnswerState>;
-    scanImageDataUrl?: string;
-  }
-): StudentResult {
-  const calc = calculateMarks(exam, partial.finalAnswers);
-  return {
-    id: `RES_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
-    examId: exam.id,
-    sheetId: partial.sheetId,
-    studentName: partial.studentName || 'Unknown',
-    rollNumber: partial.rollNumber || '—',
-    section: partial.section || '',
-    registrationId: partial.registrationId || '',
-    detectedAnswers: partial.detectedAnswers,
-    confidences: partial.confidences,
-    finalAnswers: partial.finalAnswers,
-    corrections: partial.corrections || {},
-    ...calc,
-    scanImageDataUrl: partial.scanImageDataUrl,
-    timestamp: new Date().toISOString(),
-  };
 }
 
 export function needsReview(
@@ -109,9 +73,39 @@ export function needsReview(
 ): number[] {
   const indices: number[] = [];
   for (let i = 0; i < answers.length; i++) {
-    if (answers[i] === 'MULTIPLE' || answers[i] === 'UNCERTAIN' || confidences[i] < lowThreshold) {
+    if (answers[i] === 'MULTIPLE' || (confidences[i] !== undefined && confidences[i] < lowThreshold && answers[i] !== 'BLANK')) {
       indices.push(i);
     }
   }
   return indices;
+}
+
+export function buildResult(
+  exam: Exam,
+  partial: {
+    sheetId: string;
+    studentName: string;
+    rollNumber: string;
+    detectedAnswers: AnswerState[];
+    confidences: number[];
+    finalAnswers: AnswerState[];
+    corrections?: Record<number, AnswerState>;
+    scanImageDataUrl?: string;
+  }
+): StudentResult {
+  const marks = calculateMarks(exam, partial.finalAnswers);
+  return {
+    id: `res_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    examId: exam.id,
+    sheetId: partial.sheetId,
+    studentName: partial.studentName,
+    rollNumber: partial.rollNumber,
+    detectedAnswers: partial.detectedAnswers,
+    confidences: partial.confidences,
+    finalAnswers: partial.finalAnswers,
+    corrections: partial.corrections || {},
+    ...marks,
+    scannedAt: new Date().toISOString(),
+    scanImageDataUrl: partial.scanImageDataUrl,
+  };
 }
