@@ -22,24 +22,48 @@ export const TEMPLATE: OMRTemplateConfig = {
   questionsPerCol: 20,
 };
 
+/**
+ * Template for common Indian school / board OMR sheets (no corner markers).
+ * 4 columns × 10 questions, A–D options.
+ * Positions are relative fractions of the page so they tolerate modest crop variation.
+ * Works best when the photo is cropped reasonably tightly to the paper edges.
+ */
+export const SCHOOL_TEMPLATE: OMRTemplateConfig = {
+  pageWidth: 1240,
+  pageHeight: 1754,
+  markers: [], // none
+  bubbleRadius: 15,
+  // Answer grid occupies roughly the lower 55–60 % of a typical school OMR
+  questionsStartY: Math.round(1754 * 0.62), // ~1087
+  questionHeight: Math.round(1754 * 0.032), // ~56
+  optionsStartX: Math.round(1240 * 0.105),  // ~130
+  optionSpacing: Math.round(1240 * 0.038),  // ~47
+  rollStartY: Math.round(1754 * 0.22),
+  rollDigitSpacing: Math.round(1240 * 0.055),
+  cols: 4,
+  questionsPerCol: 10,
+};
+
 export function getBubbleCenter(
   questionIndex: number,
   optionIndex: number,
   _totalQuestions: number,
-  _optionsPerQ: number
+  _optionsPerQ: number,
+  tmpl: OMRTemplateConfig = TEMPLATE
 ): { x: number; y: number } {
-  const col = Math.floor(questionIndex / TEMPLATE.questionsPerCol);
-  const row = questionIndex % TEMPLATE.questionsPerCol;
-  const colOffset = col * 560;
-  const x = TEMPLATE.optionsStartX + colOffset + optionIndex * TEMPLATE.optionSpacing;
-  const y = TEMPLATE.questionsStartY + row * TEMPLATE.questionHeight;
+  const col = Math.floor(questionIndex / tmpl.questionsPerCol);
+  const row = questionIndex % tmpl.questionsPerCol;
+  // Column width ~ page / cols with small gutters
+  const colWidth = tmpl.pageWidth / tmpl.cols;
+  const colOffset = col * colWidth;
+  const x = tmpl.optionsStartX + colOffset + optionIndex * tmpl.optionSpacing;
+  const y = tmpl.questionsStartY + row * tmpl.questionHeight;
   return { x, y };
 }
 
-export function getRollBubbleCenter(digitPos: number, digitValue: number): { x: number; y: number } {
-  const x = 200 + digitPos * TEMPLATE.rollDigitSpacing;
-  // Vertical spacing ~ bubble diameter + gap (~48px at 150dpi for 7-8mm)
-  const y = TEMPLATE.rollStartY + digitValue * 48;
+export function getRollBubbleCenter(digitPos: number, digitValue: number, tmpl: OMRTemplateConfig = TEMPLATE): { x: number; y: number } {
+  const x = 200 + digitPos * tmpl.rollDigitSpacing;
+  const y = tmpl.rollStartY + digitValue * 48;
   return { x, y };
 }
 
