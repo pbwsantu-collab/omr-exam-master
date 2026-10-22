@@ -1,5 +1,6 @@
-import { TEMPLATE, getBubbleCenter, getRollBubbleCenter, OPTION_LETTERS } from './omrTemplate';
+import { TEMPLATE, SCHOOL_TEMPLATE, getBubbleCenter, getRollBubbleCenter, OPTION_LETTERS } from './omrTemplate';
 import type { AnswerState } from '../types';
+import type { OMRTemplateConfig } from '../types';
 
 export interface ProcessResult {
   success: boolean;
@@ -11,6 +12,7 @@ export interface ProcessResult {
   confidences: number[];
   fillValues: number[][];
   alignedCanvas?: HTMLCanvasElement;
+  usedFallback?: boolean;
 }
 
 async function loadImage(src: string | Blob): Promise<HTMLImageElement | ImageBitmap> {
@@ -66,7 +68,6 @@ function normalizeBrightness(data: ImageData): ImageData {
 
 function findMarker(data: ImageData, w: number, h: number, cx: number, cy: number, searchR: number) {
   let bestX = cx, bestY = cy, bestScore = -1;
-  // Coarse search then refine
   for (let y = Math.max(0, cy - searchR); y < Math.min(h, cy + searchR); y += 2) {
     for (let x = Math.max(0, cx - searchR); x < Math.min(w, cx + searchR); x += 2) {
       let dark = 0, cnt = 0;
@@ -82,7 +83,6 @@ function findMarker(data: ImageData, w: number, h: number, cx: number, cy: numbe
     }
   }
   if (bestScore < 0.28) return null;
-  // Centroid refine on darker pixels
   let sx = 0, sy = 0, n = 0;
   for (let y = Math.max(0, bestY - 24); y < Math.min(h, bestY + 24); y++) {
     for (let x = Math.max(0, bestX - 24); x < Math.min(w, bestX + 24); x++) {
@@ -139,6 +139,15 @@ function warpPerspective(srcCanvas: HTMLCanvasElement, srcPts: { x: number; y: n
   return dest;
 }
 
+/** Simple resize to template size when no markers. */
+function resizeToTemplate(srcCanvas: HTMLCanvasElement, destW: number, destH: number): HTMLCanvasElement {
+  const dest = document.createElement('canvas');
+  dest.width = destW;
+  dest.height = destH;
+  dest.getContext('2d')!.drawImage(srcCanvas, 0, 0, destW, destH);
+  return dest;
+}
+
 function measureBubbleFill(data: ImageData, cx: number, cy: number, radius: number): number {
   const w = data.width, h = data.height, r2 = radius * radius;
   let dark = 0, total = 0;
@@ -149,20 +158,25 @@ function measureBubbleFill(data: ImageData, cx: number, cy: number, radius: numb
       const x = ix + dx, y = iy + dy;
       if (x < 0 || y < 0 || x >= w || y >= h) continue;
       total++;
-      // Slightly higher threshold for filled pen marks vs printed outline
       if (data.data[(y * w + x) * 4] < 120) dark++;
     }
   }
   return total > 0 ? dark / total : 0;
 }
 
-function detectAnswers(data: ImageData, totalQuestions: number, optionsPerQ: number, fillThreshold: number) {
+function detectAnswers(
+  data: ImageData,
+  totalQuestions: number,
+  optionsPerQ: number,
+  fillThreshold: number,
+  tmpl: OMRTemplateConfig = TEMPLATE
+) {
   const answers: AnswerState[] = [], confidences: number[] = [], fillValues: number[][] = [];
-  const radius = Math.max(TEMPLATE.bubbleRadius, 12);
+  const radius = Math.max(tmpl.bubbleRadius, 12);
   for (let q = 0; q < totalQuestions; q++) {
     const fills: number[] = [];
     for (let o = 0; o < optionsPerQ; o++) {
-      const { x, y } = getBubbleCenter(q, o, totalQuestions, optionsPerQ);
+      const { x, y } = getBubbleCenter(q, o, totalQuestions, optionsPerQ, tmpl);
       fills.push(measureBubbleFill(data, x, y, radius));
     }
     fillValues.push(fills);
@@ -175,12 +189,12 @@ function detectAnswers(data: ImageData, totalQuestions: number, optionsPerQ: num
   return { answers, confidences, fillValues };
 }
 
-function detectRoll(data: ImageData, digits = 2) {
+function detectRoll(data: ImageData, digits = 2, tmpl: OMRTemplateConfig = TEMPLATE) {
   let roll = '', confSum = 0;
   for (let pos = 0; pos < digits; pos++) {
     let bestD = 0, bestF = 0;
     for (let d = 0; d <= 9; d++) {
-      const { x, y } = getRollBubbleCenter(pos, d);
+      const { x, y } = getRollBubbleCenter(pos, d, tmpl);
       const f = measureBubbleFill(data, x, y, 13);
       if (f > bestF) { bestF = f; bestD = d; }
     }
@@ -203,27 +217,72 @@ export async function processOMRImage(
     let gray = toGrayscale(ctx, canvas.width, canvas.height);
     gray = normalizeBrightness(gray);
     ctx.putImageData(gray, 0, 0);
+
     let sum = 0;
     for (let i = 0; i < gray.data.length; i += 40) sum += gray.data[i];
     if (sum / (gray.data.length / 40) < 25) {
       return { success: false, error: 'IMAGE TOO DARK. Use better lighting and try again.', answers: [], confidences: [], fillValues: [] };
     }
+
+    // 1) Try standard app sheet (with corner markers)
     const markers = detectMarkers(gray, canvas.width, canvas.height);
-    if (!markers) {
+    if (markers) {
+      const aligned = warpPerspective(canvas, markers, TEMPLATE.pageWidth, TEMPLATE.pageHeight);
+      const actx = aligned.getContext('2d')!;
+      let aData = toGrayscale(actx, TEMPLATE.pageWidth, TEMPLATE.pageHeight);
+      aData = normalizeBrightness(aData);
+      actx.putImageData(aData, 0, 0);
+      const { answers, confidences, fillValues } = detectAnswers(aData, totalQuestions, optionsPerQ, fillThreshold, TEMPLATE);
+      const { roll, confidence: rollConf } = detectRoll(aData, 2, TEMPLATE);
       return {
-        success: false,
-        error: 'OMR ALIGNMENT NOT DETECTED.\n\nTips:\n- Show all 4 black corner squares\n- Keep sheet flat\n- Good lighting, no strong shadows\n- Phone parallel to paper',
-        answers: [], confidences: [], fillValues: [],
+        success: true,
+        rollNumber: roll || undefined,
+        rollConfidence: rollConf,
+        answers,
+        confidences,
+        fillValues,
+        alignedCanvas: aligned,
+        usedFallback: false,
       };
     }
-    const aligned = warpPerspective(canvas, markers, TEMPLATE.pageWidth, TEMPLATE.pageHeight);
+
+    // 2) Fallback for school / board OMRs without corner markers (e.g. 4-col 40Q)
+    //    Works best when the photo is cropped reasonably close to the paper edges.
+    const useSchool = totalQuestions === 40 && optionsPerQ === 4;
+    const tmpl = useSchool ? SCHOOL_TEMPLATE : TEMPLATE;
+    const aligned = resizeToTemplate(canvas, tmpl.pageWidth, tmpl.pageHeight);
     const actx = aligned.getContext('2d')!;
-    let aData = toGrayscale(actx, TEMPLATE.pageWidth, TEMPLATE.pageHeight);
+    let aData = toGrayscale(actx, tmpl.pageWidth, tmpl.pageHeight);
     aData = normalizeBrightness(aData);
     actx.putImageData(aData, 0, 0);
-    const { answers, confidences, fillValues } = detectAnswers(aData, totalQuestions, optionsPerQ, fillThreshold);
-    const { roll, confidence: rollConf } = detectRoll(aData, 2);
-    return { success: true, rollNumber: roll || undefined, rollConfidence: rollConf, answers, confidences, fillValues, alignedCanvas: aligned };
+
+    // Slightly more lenient threshold for photo quality variation
+    const thresh = Math.min(fillThreshold, 0.28);
+    const { answers, confidences, fillValues } = detectAnswers(aData, totalQuestions, optionsPerQ, thresh, tmpl);
+
+    // Basic sanity: if almost everything is blank the crop/positions are probably wrong
+    const blankCount = answers.filter(a => a === 'BLANK').length;
+    if (blankCount > totalQuestions * 0.85) {
+      return {
+        success: false,
+        error: 'OMR ALIGNMENT NOT DETECTED (and school-sheet fallback also found almost no marks).\n\nTips for school sheets:\n- Crop the photo tightly to the paper edges (remove hands / table)\n- Keep the sheet flat and phone parallel\n- Good even lighting, no strong shadows\n- Make sure all 4 corners of the paper are visible\n- Or use the app’s own Print OMR Sheet (has black corner markers)',
+        answers: [],
+        confidences: [],
+        fillValues: [],
+        usedFallback: true,
+      };
+    }
+
+    return {
+      success: true,
+      answers,
+      confidences,
+      fillValues,
+      alignedCanvas: aligned,
+      usedFallback: true,
+      rollNumber: undefined,
+      rollConfidence: 0,
+    };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : 'Processing failed', answers: [], confidences: [], fillValues: [] };
   }
