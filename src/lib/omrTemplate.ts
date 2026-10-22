@@ -1,22 +1,23 @@
 import type { OMRTemplateConfig, OptionLetter } from '../types';
 
-/** A4 at 150 DPI approx for processing: 1240 x 1754 */
+/** A4 at ~150 DPI for processing: 1240 x 1754 (matches print CSS 210mm x 297mm) */
 export const TEMPLATE: OMRTemplateConfig = {
   pageWidth: 1240,
   pageHeight: 1754,
   markers: [
-    { x: 60, y: 60, size: 40 },
-    { x: 1180, y: 60, size: 40 },
-    { x: 60, y: 1694, size: 40 },
-    { x: 1180, y: 1694, size: 40 },
+    // ~8mm inset, ~12mm size (CSS .omr-marker)
+    { x: 47, y: 47, size: 71 },
+    { x: 1122, y: 47, size: 71 },
+    { x: 47, y: 1636, size: 71 },
+    { x: 1122, y: 1636, size: 71 },
   ],
-  bubbleRadius: 14,
-  questionsStartY: 420,
-  questionHeight: 32,
-  optionsStartX: 180,
-  optionSpacing: 70,
-  rollStartY: 280,
-  rollDigitSpacing: 55,
+  bubbleRadius: 16,
+  questionsStartY: 520,
+  questionHeight: 36,
+  optionsStartX: 160,
+  optionSpacing: 72,
+  rollStartY: 260,
+  rollDigitSpacing: 70,
   cols: 2,
   questionsPerCol: 20,
 };
@@ -37,7 +38,8 @@ export function getBubbleCenter(
 
 export function getRollBubbleCenter(digitPos: number, digitValue: number): { x: number; y: number } {
   const x = 200 + digitPos * TEMPLATE.rollDigitSpacing;
-  const y = TEMPLATE.rollStartY + digitValue * 28;
+  // Vertical spacing ~ bubble diameter + gap (~48px at 150dpi for 7-8mm)
+  const y = TEMPLATE.rollStartY + digitValue * 48;
   return { x, y };
 }
 
