@@ -66,28 +66,30 @@ function normalizeBrightness(data: ImageData): ImageData {
 
 function findMarker(data: ImageData, w: number, h: number, cx: number, cy: number, searchR: number) {
   let bestX = cx, bestY = cy, bestScore = -1;
-  for (let y = Math.max(0, cy - searchR); y < Math.min(h, cy + searchR); y += 3) {
-    for (let x = Math.max(0, cx - searchR); x < Math.min(w, cx + searchR); x += 3) {
+  // Coarse search then refine
+  for (let y = Math.max(0, cy - searchR); y < Math.min(h, cy + searchR); y += 2) {
+    for (let x = Math.max(0, cx - searchR); x < Math.min(w, cx + searchR); x += 2) {
       let dark = 0, cnt = 0;
-      for (let dy = -12; dy <= 12; dy += 2) {
-        for (let dx = -12; dx <= 12; dx += 2) {
+      for (let dy = -16; dy <= 16; dy += 2) {
+        for (let dx = -16; dx <= 16; dx += 2) {
           const px = x + dx, py = y + dy;
           if (px < 0 || py < 0 || px >= w || py >= h) continue;
           cnt++;
-          if (data.data[(py * w + px) * 4] < 90) dark++;
+          if (data.data[(py * w + px) * 4] < 100) dark++;
         }
       }
-      if (cnt > 10 && dark / cnt > bestScore) { bestScore = dark / cnt; bestX = x; bestY = y; }
+      if (cnt > 20 && dark / cnt > bestScore) { bestScore = dark / cnt; bestX = x; bestY = y; }
     }
   }
-  if (bestScore < 0.35) return null;
+  if (bestScore < 0.28) return null;
+  // Centroid refine on darker pixels
   let sx = 0, sy = 0, n = 0;
-  for (let y = Math.max(0, bestY - 18); y < Math.min(h, bestY + 18); y++) {
-    for (let x = Math.max(0, bestX - 18); x < Math.min(w, bestX + 18); x++) {
-      if (data.data[(y * w + x) * 4] < 100) { sx += x; sy += y; n++; }
+  for (let y = Math.max(0, bestY - 24); y < Math.min(h, bestY + 24); y++) {
+    for (let x = Math.max(0, bestX - 24); x < Math.min(w, bestX + 24); x++) {
+      if (data.data[(y * w + x) * 4] < 110) { sx += x; sy += y; n++; }
     }
   }
-  if (n > 5) { bestX = sx / n; bestY = sy / n; }
+  if (n > 10) { bestX = sx / n; bestY = sy / n; }
   return { x: bestX, y: bestY };
 }
 
@@ -147,7 +149,8 @@ function measureBubbleFill(data: ImageData, cx: number, cy: number, radius: numb
       const x = ix + dx, y = iy + dy;
       if (x < 0 || y < 0 || x >= w || y >= h) continue;
       total++;
-      if (data.data[(y * w + x) * 4] < 110) dark++;
+      // Slightly higher threshold for filled pen marks vs printed outline
+      if (data.data[(y * w + x) * 4] < 120) dark++;
     }
   }
   return total > 0 ? dark / total : 0;
@@ -178,10 +181,10 @@ function detectRoll(data: ImageData, digits = 2) {
     let bestD = 0, bestF = 0;
     for (let d = 0; d <= 9; d++) {
       const { x, y } = getRollBubbleCenter(pos, d);
-      const f = measureBubbleFill(data, x, y, 11);
+      const f = measureBubbleFill(data, x, y, 13);
       if (f > bestF) { bestF = f; bestD = d; }
     }
-    if (bestF < 0.28) return { roll: '', confidence: 0 };
+    if (bestF < 0.25) return { roll: '', confidence: 0 };
     roll += String(bestD); confSum += bestF;
   }
   return { roll, confidence: confSum / digits };
