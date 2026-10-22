@@ -31,12 +31,12 @@ export function calculateMarks(
       blank++;
     } else if (ans === 'MULTIPLE') {
       multiple++;
-      if (exam.negativeMarking > 0) negativeApplied += exam.negativeMarking;
+      if (exam.negativeMarks > 0) negativeApplied += exam.negativeMarks;
     } else if (ans === correctOpt) {
       correct++;
     } else {
       wrong++;
-      if (exam.negativeMarking > 0) negativeApplied += exam.negativeMarking;
+      if (exam.negativeMarks > 0) negativeApplied += exam.negativeMarks;
     }
   }
 
@@ -60,8 +60,10 @@ export function calculateMarks(
 }
 
 function gradeFromPercentage(pct: number, ranges: GradeRange[]): string {
-  for (const r of ranges) {
-    if (pct >= r.minPercent) return r.grade;
+  // ranges expected sorted high-to-low by min
+  const sorted = [...ranges].sort((a, b) => b.min - a.min);
+  for (const r of sorted) {
+    if (pct >= r.min) return r.grade;
   }
   return 'F';
 }
@@ -100,12 +102,14 @@ export function buildResult(
     sheetId: partial.sheetId,
     studentName: partial.studentName,
     rollNumber: partial.rollNumber,
+    section: '',
+    registrationId: '',
     detectedAnswers: partial.detectedAnswers,
     confidences: partial.confidences,
     finalAnswers: partial.finalAnswers,
     corrections: partial.corrections || {},
     ...marks,
-    scannedAt: new Date().toISOString(),
+    timestamp: new Date().toISOString(),
     scanImageDataUrl: partial.scanImageDataUrl,
   };
 }
